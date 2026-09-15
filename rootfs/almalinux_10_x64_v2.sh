@@ -9,7 +9,15 @@ set -ue
 # - Build tools: dnf -y install @container-management jq
 
 timestamp=$(date -u '+%Y%m%d')
-minor_version="${1:-2}"
+# Minor version: the first argument, or - when not given - derived from the
+# almalinux-release package in the BaseOS repository the image is built from
+# (tools/almalinux-release.sh), so the image name agrees with
+# /etc/almalinux-release inside it without hardcoding the minor version.
+minor_version="${1:-}"
+if [ -z "${minor_version}" ]; then
+    release=$(bash "$(dirname "$0")/../tools/almalinux-release.sh" 10 x86_64_v2)
+    minor_version="${release#10.}"
+fi
 build_number="${2:-0}"
 build_version="${timestamp}"."${build_number}"
 output_file=AlmaLinux-10."${minor_version}"_x64_v2_"${build_version}".wsl

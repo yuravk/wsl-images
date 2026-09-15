@@ -33,6 +33,12 @@
 # /rootfs, so the shipped image keeps the standard repositories seeded by
 # the almalinux-release package (which itself comes from the compose).
 #
+# The scripts derive their default minor version from the almalinux-release
+# package of the repository they build from (tools/almalinux-release.sh);
+# the rewrite exports PUNGI_REPOS=1 for that call, so an image built from
+# the compose is named after the pre-release version it contains (e.g.
+# 10.3 while the public repositories still ship 10.2).
+#
 # With gpgcheck off, dnf never runs the GPG key import a GA build performs
 # while installing signed packages, so the image would ship without the
 # gpg-pubkey entry in its rpmdb (prompting on the first dnf install on a
@@ -87,6 +93,11 @@ for major in "${MAJORS[@]}"; do
             echo "[Error] ${f} has no '# Cleanup' section, cannot inject the GPG key import"
             exit 1
         fi
+        # shellcheck disable=SC2016
+        if ! grep -qF 'bash "$(dirname "$0")/../tools/almalinux-release.sh" '"${major}"' ' "${f}"; then
+            echo "[Error] ${f} does not derive the minor version with tools/almalinux-release.sh, cannot switch it to the PUNGI compose"
+            exit 1
+        fi
 
         arch=$(repo_arch "${suffix}")
         base="https://$(arch_dash "${arch}")-pungi-${major}.almalinux.dev/almalinux/${major}/${arch}/latest_result_almalinux/compose"
@@ -109,6 +120,9 @@ buildah run "\$wsl_builder_ct" -- rpm --root=/rootfs --import /rootfs/etc/pki/rp
 
 EOF
         awk -v ins="${inj}" -v gpg="${gpg}" '
+            /tools\/almalinux-release\.sh" / && !/PUNGI_REPOS=1/ {
+                sub(/\$\(bash /, "$(PUNGI_REPOS=1 bash ")
+            }
             /^# Cleanup/ && !gpg_done {
                 while ((getline line < gpg) > 0) print line
                 close(gpg)
@@ -138,6 +152,11 @@ for major in "${MAJORS[@]}"; do
         fi
         if ! grep -q 'rpm --root=/rootfs --import' "${f}"; then
             echo "[Error] ${f} does not import the GPG key after the PUNGI rewrite"
+            exit 1
+        fi
+        # shellcheck disable=SC2016
+        if ! grep -qF 'PUNGI_REPOS=1 bash "$(dirname "$0")/../tools/almalinux-release.sh"' "${f}"; then
+            echo "[Error] ${f} still derives the minor version from the public repositories after the PUNGI rewrite"
             exit 1
         fi
     done
